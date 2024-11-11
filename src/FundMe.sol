@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.26;
 
-import { PriceConverter } from "./PriceConverter.sol";
+import {PriceConverter} from "./PriceConverter.sol";
+import {AggregatorV3Interface} from "@chainlink/contracts/src/v0.8/shared/interfaces/AggregatorV3Interface.sol";
 //Get funds from users
 // Withdraw funds
 // Set a minimum funding value in USD
@@ -9,13 +10,16 @@ import { PriceConverter } from "./PriceConverter.sol";
 contract FundMe {
     using PriceConverter for uint256;
     uint256 public constant MINIMUM_USD = 5e18;
+    AggregatorV3Interface private s_priceFeed;
 
     address[] public funders;
     address public immutable i_owner;
-    mapping(address funder => uint256 amountFunded) public addressToAmountFunded;
+    mapping(address funder => uint256 amountFunded)
+        public addressToAmountFunded;
 
-    constructor() {
+    constructor(address priceFeed) {
         i_owner = msg.sender;
+        s_priceFeed = AggregatorV3Interface(priceFeed);
     }
 
     function fund() public payable {
@@ -23,15 +27,22 @@ contract FundMe {
         // Have minimum $ send, use Oracle to get the real price of the ETH in USD
         // 1. How do we send ETH to this contract?
         // What is a revert? It undoes any actions that have been done, and send the remaining gas back
-        require ( msg.value.getConvertionRate() >= MINIMUM_USD, "Not enough ETH provided"); // 1e18 = 10^18 (1 * 10 ** 18) = 1 ETH 
+        require(
+            msg.value.getConvertionRate(s_priceFeed) >= MINIMUM_USD,
+            "Not enough ETH provided"
+        ); // 1e18 = 10^18 (1 * 10 ** 18) = 1 ETH
         funders.push(msg.sender);
         addressToAmountFunded[msg.sender] += msg.value; // Amount funded by this address in USD
     }
 
     function withdraw() public onlyOwner {
         // for loop (starting index, edning index, step amount)
-        for (uint256 funderIndex = 0; funderIndex < funders.length; funderIndex++) {
-            address funder = funders[funderIndex]; 
+        for (
+            uint256 funderIndex = 0;
+            funderIndex < funders.length;
+            funderIndex++
+        ) {
+            address funder = funders[funderIndex];
             addressToAmountFunded[funder] = 0;
         }
         //reset array of funders
@@ -47,12 +58,18 @@ contract FundMe {
         // require(sendSuccess, "SEND FAILED");
 
         //call
-        (bool callSuccess, ) = payable(msg.sender).call{value: address(this).balance}("");
+        (bool callSuccess, ) = payable(msg.sender).call{
+            value: address(this).balance
+        }("");
         require(callSuccess, "CALL FAILED");
     }
 
+    function getVersion() public view returns (uint256) {
+        return s_priceFeed.version();
+    }
+
     // modifier acts like middleware in JS
-    modifier onlyOwner () {
+    modifier onlyOwner() {
         require(msg.sender == i_owner, "Must be owner!");
         _;
     }
